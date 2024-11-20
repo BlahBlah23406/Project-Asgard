@@ -269,7 +269,7 @@ public class FTCPathPlanner extends JFrame {
 
         StringBuilder codeBuilder = new StringBuilder();
         Box firstBox = boxes.get(0);
-        codeBuilder.append(String.format("localizer.setPoseEstimate(new Pose2d(%.2f, %.2f, Math.toRadians(%.1f)));\n", firstBox.xInches, firstBox.yInches, firstBox.deg));
+        codeBuilder.append(String.format("initOpMode(%.2f, %.2f, %.1f);\n", firstBox.xInches, firstBox.yInches, firstBox.deg));
 
         for (int i = 1; i < boxes.size(); i++) {
             Box box = boxes.get(i);
@@ -291,7 +291,7 @@ public class FTCPathPlanner extends JFrame {
 
         StringBuilder codeBuilder = new StringBuilder();
         Box firstBox = boxes.get(0);
-        codeBuilder.append(String.format("localizer.setPoseEstimate(new Pose2d(%.2f, %.2f, Math.toRadians(%.1f)));\n", firstBox.xInches, firstBox.yInches, firstBox.deg));
+        codeBuilder.append(String.format("initOpMode(%.2f, %.2f, %.1f);\n", firstBox.xInches, firstBox.yInches, firstBox.deg));
 
         for (int i = 1; i < boxes.size(); i++) {
             Box box = boxes.get(i);
@@ -325,7 +325,7 @@ public class FTCPathPlanner extends JFrame {
 
                 while (scanner.hasNextLine()) {
                     String line = scanner.nextLine();
-                    if (line.startsWith("localizer.setPoseEstimate")) {
+                    if (line.startsWith("initOpMode")) {
                         double[] parsed = parsePose2d(line);
                         addBox(parsed[0], parsed[1], parsed[2]);
                     } else if (line.startsWith("lineTo")) {
@@ -349,7 +349,7 @@ public class FTCPathPlanner extends JFrame {
     }
 
     private double[] parsePose2d(String line) {
-        return parseCoordinates(line, "localizer.setPoseEstimate");
+        return parseCoordinates(line, "initOpMode");
     }
 
     private double[] parseLineTo(String line) {
