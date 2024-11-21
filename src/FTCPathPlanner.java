@@ -5,6 +5,9 @@ import java.awt.geom.AffineTransform;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Scanner;
+import java.awt.datatransfer.StringSelection;
+import java.awt.Toolkit;
+
 
 public class FTCPathPlanner extends JFrame {
     private JLabel fieldLabel;
@@ -17,6 +20,8 @@ public class FTCPathPlanner extends JFrame {
     private Box selectedBox = null; // Box being dragged
     private int dragOffsetX = 0;    // Offset from the click point
     private int dragOffsetY = 0;
+    private boolean isBlueMode = false; // Flag for rotation mode
+
 
 
     private Image robotImage;
@@ -31,22 +36,36 @@ public class FTCPathPlanner extends JFrame {
         robotImage = new ImageIcon("src/robot.png").getImage();
 
         // Load the field image
-        Image fieldImage = new ImageIcon("src/field.png").getImage(); // Replace with actual image path
+        Image fieldImage = new ImageIcon("src/field.png").getImage();
+        Image flippedfieldImage = new ImageIcon("src/flippedfield.png").getImage();// Replace with actual image path
 
         fieldLabel = new JLabel() {
             @Override
             protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
                 Graphics2D g2d = (Graphics2D) g;
-                g2d.drawImage(fieldImage, 0, 0, FIELD_SIZE_PIXELS, FIELD_SIZE_PIXELS, null);
 
-                // Draw gridlines
-                g2d.setColor(Color.RED);
-                int gridSpacingPixels = (GRID_INTERVAL_INCHES * FIELD_SIZE_PIXELS) / FIELD_SIZE_INCHES;
-                for (int i = 0; i <= FIELD_SIZE_PIXELS; i += gridSpacingPixels) {
-                    g2d.drawLine(i, 0, i, FIELD_SIZE_PIXELS); // Vertical lines
-                    g2d.drawLine(0, i, FIELD_SIZE_PIXELS, i); // Horizontal lines
+                // Calculate the dynamic field size (keep square ratio)
+                int panelSize = Math.min(getWidth(), getHeight());
+                int dynamicFieldSize = panelSize; // Field size is now dynamic
+
+                // Scale everything based on the dynamic field size
+                double scaleFactor = dynamicFieldSize / (double) FIELD_SIZE_PIXELS;
+
+                // Calculate horizontal offset to center the field
+                int horizontalOffset = (getWidth() - dynamicFieldSize) / 2;
+
+                // Apply scaling and translation transformations
+                g2d.translate(horizontalOffset, 0); // Center field horizontally
+                g2d.scale(scaleFactor, scaleFactor);
+
+                // Draw the field image
+                if (isBlueMode) {
+                    g2d.drawImage(flippedfieldImage, 0, 0, FIELD_SIZE_PIXELS, FIELD_SIZE_PIXELS, null);
+                } else {
+                    g2d.drawImage(fieldImage, 0, 0, FIELD_SIZE_PIXELS, FIELD_SIZE_PIXELS, null);
                 }
+
 
                 // Draw all boxes
                 for (int i = 0; i < boxes.size(); i++) {
@@ -68,12 +87,20 @@ public class FTCPathPlanner extends JFrame {
                     // Draw marker at center
                     g2d.fillOval(box.x - 5, adjustedY - 5, 10, 10);
 
-                    // **Change the text color and position**
-                    g2d.setColor(Color.BLACK); // Use black for better contrast
+                    // Draw action label if assigned
+                    if (box.action != null) {
+                        g2d.setColor(Color.BLACK);
+                        int actionX = box.x - 58;
+                        int actionY = adjustedY + BOX_SIZE_PIXELS / 2 + 32;
+                        g2d.drawString(box.action, actionX, actionY);
+                    }
+
+                    // Draw text near the box
+                    g2d.setColor(Color.BLACK);
                     g2d.drawString(
                             String.format("%d (%.1f, %.1f, %.1f°)", i + 1, box.xInches, box.yInches, box.deg),
-                            box.x - 30, // Slightly adjust left alignment
-                            adjustedY + BOX_SIZE_PIXELS / 2 + 15 // Position text below the robot
+                            box.x - 58,
+                            adjustedY + BOX_SIZE_PIXELS / 2 + 15
                     );
 
                     // Connect boxes with lines
@@ -82,35 +109,50 @@ public class FTCPathPlanner extends JFrame {
                         g2d.drawLine(prev.x, FIELD_SIZE_PIXELS - prev.y, box.x, adjustedY);
                     }
                 }
+
+                // Reset scaling transformation after painting
+                g2d.scale(1 / scaleFactor, 1 / scaleFactor);
+                g2d.translate(-horizontalOffset, 0);
             }
+
         };
 
         addBox(24, 24, 0);
 
-        fieldLabel.setPreferredSize(new Dimension(FIELD_SIZE_PIXELS, FIELD_SIZE_PIXELS));
+        fieldLabel.setPreferredSize(null); // Allow dynamic resizing
+
         fieldLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                Point clickedPoint = e.getPoint();
+                // Calculate the dynamic scale factor
+                int panelSize = Math.min(fieldLabel.getWidth(), fieldLabel.getHeight());
+                double scaleFactor = panelSize / (double) FIELD_SIZE_PIXELS;
+
+                // Calculate the horizontal offset to center the field
+                int horizontalOffset = (fieldLabel.getWidth() - panelSize) / 2;
+
+                // Adjust mouse coordinates to the original field coordinate system
+                int originalX = (int) ((e.getX() - horizontalOffset) / scaleFactor);
+                int originalY = (int) (e.getY() / scaleFactor);
+
                 boolean nearBox = false;
                 for (Box box : boxes) {
                     int centerX = box.x;
                     int centerY = FIELD_SIZE_PIXELS - box.y; // Flip Y-axis
-                    // Check if the click is within the marker (center dot area)
-                    if (clickedPoint.distance(centerX, centerY) <= 10) {
+                    if (Math.hypot(originalX - centerX, originalY - centerY) <= 10) {
                         selectedBox = box;
-                        dragOffsetX = clickedPoint.x - centerX;
-                        dragOffsetY = clickedPoint.y - centerY;
+                        dragOffsetX = originalX - centerX;
+                        dragOffsetY = originalY - centerY;
                         nearBox = true;
                         break;
                     }
                 }
 
                 if (!nearBox) {
-                    int adjustedY = FIELD_SIZE_PIXELS - clickedPoint.y; // Flip Y-axis
-                    double xInches = (clickedPoint.x / (double) FIELD_SIZE_PIXELS) * FIELD_SIZE_INCHES;
+                    int adjustedY = FIELD_SIZE_PIXELS - originalY; // Flip Y-axis
+                    double xInches = (originalX / (double) FIELD_SIZE_PIXELS) * FIELD_SIZE_INCHES;
                     double yInches = (adjustedY / (double) FIELD_SIZE_PIXELS) * FIELD_SIZE_INCHES;
-                    boxes.add(new Box(clickedPoint.x, adjustedY, xInches, yInches));
+                    boxes.add(new Box(originalX, adjustedY, xInches, yInches));
                     repaint();
                 }
             }
@@ -121,13 +163,25 @@ public class FTCPathPlanner extends JFrame {
             }
         });
 
+
+
         fieldLabel.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseDragged(MouseEvent e) {
                 if (selectedBox != null) {
-                    Point draggedPoint = e.getPoint();
-                    int newX = draggedPoint.x - dragOffsetX;
-                    int newY = draggedPoint.y - dragOffsetY;
+                    // Calculate the dynamic scale factor
+                    int panelSize = Math.min(fieldLabel.getWidth(), fieldLabel.getHeight());
+                    double scaleFactor = panelSize / (double) FIELD_SIZE_PIXELS;
+
+                    // Calculate the horizontal offset to center the field
+                    int horizontalOffset = (fieldLabel.getWidth() - panelSize) / 2;
+
+                    // Adjust mouse coordinates to the original field coordinate system
+                    int draggedX = (int) ((e.getX() - horizontalOffset) / scaleFactor);
+                    int draggedY = (int) (e.getY() / scaleFactor);
+
+                    int newX = draggedX - dragOffsetX;
+                    int newY = draggedY - dragOffsetY;
 
                     // Update box pixel coordinates
                     selectedBox.x = newX;
@@ -141,6 +195,8 @@ public class FTCPathPlanner extends JFrame {
                 }
             }
         });
+
+
 
 
         add(fieldLabel, BorderLayout.CENTER);
@@ -259,6 +315,70 @@ public class FTCPathPlanner extends JFrame {
         controlsPanel.add(loadPathPlanButton);
 
         add(controlsPanel, BorderLayout.SOUTH);
+
+        JPanel rotationPanel = new JPanel(new FlowLayout());
+        JButton redButton = new JButton("Red");
+        JButton blueButton = new JButton("Blue");
+
+        redButton.addActionListener(e -> {
+            isBlueMode = false;
+            repaint();
+        });
+
+        blueButton.addActionListener(e -> {
+            isBlueMode = true;
+            repaint();
+        });
+
+        rotationPanel.add(redButton);
+        rotationPanel.add(blueButton);
+
+        add(rotationPanel, BorderLayout.NORTH); // Add rotation buttons at the top
+
+        // Action selection panel
+        JPanel actionPanel = new JPanel(new FlowLayout());
+        JComboBox<String> actionDropdown = new JComboBox<>(new String[] {
+                "None", "groundPickup", "specimanPickup", "specimanDrop", "dropBasket", "resetArm"
+        });
+
+        JTextField boxIndexFieldDropDown = new JTextField(5); // Input for box index
+        JButton applyActionButton = new JButton("Assign Action");
+
+        // Apply action to a specific box
+        applyActionButton.addActionListener(e -> {
+            try {
+                int boxIndex = Integer.parseInt(boxIndexFieldDropDown.getText()) - 1; // Convert to 0-based index
+                String selectedAction = (String) actionDropdown.getSelectedItem();
+
+                if (boxIndex >= 0 && boxIndex < boxes.size()) {
+                    boxes.get(boxIndex).action = selectedAction.equals("None") ? null : selectedAction;
+                    repaint();
+                } else {
+                    JOptionPane.showMessageDialog(this, "Invalid box index.", "Input Error", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid number for index.", "Input Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        // Add components to the panel
+        actionPanel.add(new JLabel("Box Index:"));
+        actionPanel.add(boxIndexFieldDropDown);
+        actionPanel.add(new JLabel("Action:"));
+        actionPanel.add(actionDropdown);
+        actionPanel.add(applyActionButton);
+
+        // Add actionPanel to the controls
+        controlsPanel.add(actionPanel);
+
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                fieldLabel.repaint();
+            }
+        });
+
+
     }
 
     private void generatePathPlan() {
@@ -268,34 +388,89 @@ public class FTCPathPlanner extends JFrame {
         }
 
         StringBuilder codeBuilder = new StringBuilder();
-        Box firstBox = boxes.get(0);
-        codeBuilder.append(String.format("initOpMode(%.2f, %.2f, %.1f);\n", firstBox.xInches, firstBox.yInches, firstBox.deg));
 
-        for (int i = 1; i < boxes.size(); i++) {
+        // Add the specified header at the top
+        codeBuilder.append("package org.firstinspires.ftc.teamcode.autonomous;\n\n");
+        codeBuilder.append("import com.qualcomm.robotcore.eventloop.opmode.Autonomous;\n");
+        codeBuilder.append("import org.firstinspires.ftc.teamcode.drive.AutonomousController;\n");
+        codeBuilder.append("import com.acmerobotics.dashboard.config.Config;\n\n");
+        codeBuilder.append("@Autonomous\n");
+        codeBuilder.append("@Config\n\n");
+
+        // Generate class header
+        codeBuilder.append("public class PathPlan extends AutonomousController {\n\n");
+
+        // Generate variables for each box
+        for (int i = 0; i < boxes.size(); i++) {
             Box box = boxes.get(i);
-            codeBuilder.append(String.format("lineTo(%.2f, %.2f, %.1f);\n", box.xInches, box.yInches, box.deg));
+            codeBuilder.append(String.format(
+                    "    public static double x%d = %.2f;\n", i + 1, box.xInches));
+            codeBuilder.append(String.format(
+                    "    public static double y%d = %.2f;\n", i + 1, box.yInches));
+            codeBuilder.append(String.format(
+                    "    public static double deg%d = %.1f;\n", i + 1, box.deg));
         }
 
+        // Add the runOpMode method
+        codeBuilder.append("\n    @Override\n");
+        codeBuilder.append("    public void runOpMode() {\n");
+        codeBuilder.append(String.format(
+                "        initOpMode(y1, 144 - x1, -deg1);\n"));
+        codeBuilder.append("        waitForStart();\n\n");
+        codeBuilder.append("        if (opModeIsActive()) {\n");
+        codeBuilder.append("            mainRun();\n");
+        codeBuilder.append("            stop();\n");
+        codeBuilder.append("        }\n");
+        codeBuilder.append("    }\n\n");
+
+        // Add the mainRun method
+        codeBuilder.append("    public void mainRun() {\n");
+        for (int i = 1; i < boxes.size(); i++) { // Start from the second box
+            Box box = boxes.get(i);
+            codeBuilder.append(String.format(
+                    "        lineTo(y%d, 144 - x%d, -deg%d);\n", i + 1, i + 1, i + 1));
+            if (box.action != null) {
+                codeBuilder.append(String.format(
+                        "        %s();\n", box.action));
+            }
+        }
+
+        codeBuilder.append("        stop();\n");
+        codeBuilder.append("    }\n");
+
+        // Close the class
+        codeBuilder.append("}\n");
+
+        // Display generated code in a dialog
         JTextArea codeArea = new JTextArea(codeBuilder.toString());
         codeArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(codeArea);
 
-        JOptionPane.showMessageDialog(this, scrollPane, "Generated Path Plan", JOptionPane.INFORMATION_MESSAGE);
+        // Create a panel for the popup
+        JPanel popupPanel = new JPanel(new BorderLayout());
+        popupPanel.add(scrollPane, BorderLayout.CENTER);
+
+        // Add a copy button
+        JButton copyButton = new JButton("Copy to Clipboard");
+        copyButton.addActionListener(e -> {
+            StringSelection stringSelection = new StringSelection(codeBuilder.toString());
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
+            JOptionPane.showMessageDialog(this, "Code copied to clipboard!", "Success", JOptionPane.INFORMATION_MESSAGE);
+        });
+
+        popupPanel.add(copyButton, BorderLayout.SOUTH);
+
+        // Show dialog
+        JOptionPane.showMessageDialog(this, popupPanel, "Generated Path Plan", JOptionPane.INFORMATION_MESSAGE);
     }
+
+
+
 
     private void savePathPlan() {
         if (boxes.isEmpty()) {
             JOptionPane.showMessageDialog(this, "No boxes available for export!", "Error", JOptionPane.ERROR_MESSAGE);
             return;
-        }
-
-        StringBuilder codeBuilder = new StringBuilder();
-        Box firstBox = boxes.get(0);
-        codeBuilder.append(String.format("initOpMode(%.2f, %.2f, %.1f);\n", firstBox.xInches, firstBox.yInches, firstBox.deg));
-
-        for (int i = 1; i < boxes.size(); i++) {
-            Box box = boxes.get(i);
-            codeBuilder.append(String.format("lineTo(%.2f, %.2f, %.1f);\n", box.xInches, box.yInches, box.deg));
         }
 
         JFileChooser fileChooser = new JFileChooser();
@@ -305,13 +480,24 @@ public class FTCPathPlanner extends JFrame {
         if (userSelection == JFileChooser.APPROVE_OPTION) {
             File fileToSave = fileChooser.getSelectedFile();
             try (FileWriter writer = new FileWriter(fileToSave)) {
-                writer.write(codeBuilder.toString());
+                // Save the rotation mode
+                writer.write("isBlueMode=" + isBlueMode + "\n");
+
+                // Save each box's details
+                for (Box box : boxes) {
+                    writer.write(String.format(
+                            "x=%.2f,y=%.2f,deg=%.1f,action=%s\n",
+                            box.xInches, box.yInches, box.deg, (box.action != null ? box.action : "None")
+                    ));
+                }
+
                 JOptionPane.showMessageDialog(this, "Path plan saved successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
             } catch (IOException e) {
                 JOptionPane.showMessageDialog(this, "Error saving file: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
+
 
     private void loadPathPlan() {
         JFileChooser fileChooser = new JFileChooser();
@@ -323,24 +509,39 @@ public class FTCPathPlanner extends JFrame {
             try (Scanner scanner = new Scanner(fileToLoad)) {
                 boxes.clear(); // Clear current boxes
 
+                // Load rotation mode
+                if (scanner.hasNextLine()) {
+                    String rotationLine = scanner.nextLine();
+                    if (rotationLine.startsWith("isBlueMode=")) {
+                        isBlueMode = Boolean.parseBoolean(rotationLine.split("=")[1]);
+                    }
+                }
+
+                // Load each box's details
                 while (scanner.hasNextLine()) {
                     String line = scanner.nextLine();
-                    if (line.startsWith("initOpMode")) {
-                        double[] parsed = parsePose2d(line);
-                        addBox(parsed[0], parsed[1], parsed[2]);
-                    } else if (line.startsWith("lineTo")) {
-                        double[] parsed = parseLineTo(line);
-                        addBox(parsed[0], parsed[1], parsed[2]);
-                    }
+                    String[] parts = line.split(",");
+
+                    double xInches = Double.parseDouble(parts[0].split("=")[1]);
+                    double yInches = Double.parseDouble(parts[1].split("=")[1]);
+                    double deg = Double.parseDouble(parts[2].split("=")[1]);
+                    String action = parts[3].split("=")[1];
+                    action = action.equals("None") ? null : action;
+
+                    int xPixels = (int) ((xInches / FIELD_SIZE_INCHES) * FIELD_SIZE_PIXELS);
+                    int yPixels = (int) ((yInches / FIELD_SIZE_INCHES) * FIELD_SIZE_PIXELS);
+
+                    boxes.add(new Box(xPixels, yPixels, xInches, yInches, deg, action));
                 }
 
                 repaint();
                 JOptionPane.showMessageDialog(this, "Path plan loaded successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
-            } catch (IOException e) {
+            } catch (IOException | NumberFormatException e) {
                 JOptionPane.showMessageDialog(this, "Error loading file: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
+
 
     private void addBox(double xInches, double yInches, double deg) {
         int xPixels = (int) ((xInches / FIELD_SIZE_INCHES) * FIELD_SIZE_PIXELS);
@@ -388,21 +589,27 @@ class Box {
     int x, y; // Center in pixels
     double xInches, yInches; // Coordinates in inches
     double deg; // Angle in degrees
+    String action; // Assigned action (e.g., "specimanDrop")
 
     public Box(int x, int y, double xInches, double yInches) {
-        this(x, y, xInches, yInches, 0);
+        this(x, y, xInches, yInches, 0, null);
     }
 
     public Box(int x, int y, double xInches, double yInches, double deg) {
+        this(x, y, xInches, yInches, deg, null);
+    }
+
+    public Box(int x, int y, double xInches, double yInches, double deg, String action) {
         this.x = x;
         this.y = y;
         this.xInches = xInches;
         this.yInches = yInches;
-        this.deg = deg; // Default angle
+        this.deg = deg;
+        this.action = action;
     }
 
     @Override
     public String toString() {
-        return String.format("Box [x=%.1f, y=%.1f, deg=%.1f]", xInches, yInches, deg);
+        return String.format("Box [x=%.1f, y=%.1f, deg=%.1f, action=%s]", xInches, yInches, deg, action);
     }
 }
