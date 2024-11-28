@@ -386,9 +386,9 @@ public class FTCPathPlanner extends JFrame {
             JOptionPane.showMessageDialog(this, "No boxes available for export!", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
-
+    
         StringBuilder codeBuilder = new StringBuilder();
-
+    
         // Add the specified header at the top
         codeBuilder.append("package org.firstinspires.ftc.teamcode.autonomous;\n\n");
         codeBuilder.append("import com.qualcomm.robotcore.eventloop.opmode.Autonomous;\n");
@@ -396,10 +396,10 @@ public class FTCPathPlanner extends JFrame {
         codeBuilder.append("import com.acmerobotics.dashboard.config.Config;\n\n");
         codeBuilder.append("@Autonomous\n");
         codeBuilder.append("@Config\n\n");
-
+    
         // Generate class header
         codeBuilder.append("public class PathPlan extends AutonomousController {\n\n");
-
+    
         // Generate variables for each box
         for (int i = 0; i < boxes.size(); i++) {
             Box box = boxes.get(i);
@@ -410,7 +410,7 @@ public class FTCPathPlanner extends JFrame {
             codeBuilder.append(String.format(
                     "    public static double deg%d = %.1f;\n", i + 1, box.deg));
         }
-
+    
         // Add the runOpMode method
         codeBuilder.append("\n    @Override\n");
         codeBuilder.append("    public void runOpMode() {\n");
@@ -422,34 +422,50 @@ public class FTCPathPlanner extends JFrame {
         codeBuilder.append("            stop();\n");
         codeBuilder.append("        }\n");
         codeBuilder.append("    }\n\n");
-
+    
         // Add the mainRun method
         codeBuilder.append("    public void mainRun() {\n");
         for (int i = 1; i < boxes.size(); i++) { // Start from the second box
             Box box = boxes.get(i);
+    
+            // If the action is specimanDrop or dropBasket, insert "Ready" before the movement
+            if ("specimanDrop".equals(box.action) || "dropBasket".equals(box.action)) {
+                codeBuilder.append(String.format(
+                        "        %s(\"Ready\");\n", box.action));
+            }
+    
+            // Add the lineTo call
             codeBuilder.append(String.format(
                     "        lineTo(y%d, 144 - x%d, -deg%d);\n", i + 1, i + 1, i + 1));
-            if (box.action != null) {
+    
+            // If the action is specimanDrop or dropBasket, insert "Go" after the movement
+            if ("specimanDrop".equals(box.action) || "dropBasket".equals(box.action)) {
+                codeBuilder.append(String.format(
+                        "        %s(\"Go\");\n", box.action));
+            }
+    
+            // Add any other action calls directly after the movement
+            if (box.action != null && !"specimanDrop".equals(box.action) && !"dropBasket".equals(box.action)) {
                 codeBuilder.append(String.format(
                         "        %s();\n", box.action));
             }
         }
-
+    
         codeBuilder.append("        stop();\n");
         codeBuilder.append("    }\n");
-
+    
         // Close the class
         codeBuilder.append("}\n");
-
+    
         // Display generated code in a dialog
         JTextArea codeArea = new JTextArea(codeBuilder.toString());
         codeArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(codeArea);
-
+    
         // Create a panel for the popup
         JPanel popupPanel = new JPanel(new BorderLayout());
         popupPanel.add(scrollPane, BorderLayout.CENTER);
-
+    
         // Add a copy button
         JButton copyButton = new JButton("Copy to Clipboard");
         copyButton.addActionListener(e -> {
@@ -457,12 +473,13 @@ public class FTCPathPlanner extends JFrame {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
             JOptionPane.showMessageDialog(this, "Code copied to clipboard!", "Success", JOptionPane.INFORMATION_MESSAGE);
         });
-
+    
         popupPanel.add(copyButton, BorderLayout.SOUTH);
-
+    
         // Show dialog
         JOptionPane.showMessageDialog(this, popupPanel, "Generated Path Plan", JOptionPane.INFORMATION_MESSAGE);
     }
+
 
 
 
